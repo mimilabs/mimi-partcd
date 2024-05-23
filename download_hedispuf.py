@@ -26,23 +26,30 @@ import zipfile
 
 # COMMAND ----------
 
-url = "https://www.cms.gov/files/zip"
+url1 = "https://www.cms.gov/files/zip" # 2019 ~ present
+url2 = "https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/ma-hedis-pufs" # 1997 ~ 2018
 volumepath = "/Volumes/mimi_ws_1/partcd/src"
 volumepath_zip = f"{volumepath}/zipfiles"
-retrieval_range = 48 # in months
 
 # COMMAND ----------
 
-ref_monthyear = datetime.datetime.now()
-files_to_download = [] # an array of tuples
-for mon_diff in range(1, retrieval_range): 
-    monthyear = (ref_monthyear - relativedelta(months=mon_diff)).strftime('%B-%Y').lower()
-    if monthyear == "july-2023":
-        files_to_download.append(("monthlycpsc202307.zip",
-                                 f"monthly-enrollment-cpsc-{monthyear}.zip"))
+files_to_download = []
+for year in range(1997, 2019):
+    if year == 2012:
+        files_to_download.append((f"{url2}/hedis-pufs-{year}-exl.zip",
+                              f"ma-hedis-pufs-{year}.zip"))
     else:
-        files_to_download.append((f"monthly-enrollment-cpsc-{monthyear}.zip",
-                                  f"monthly-enrollment-cpsc-{monthyear}.zip"))
+        files_to_download.append((f"{url2}/ma-hedis-pufs-{year}-exl.zip",
+                              f"ma-hedis-pufs-{year}.zip"))
+for year in range(2019, 2024):
+    if year == 2019:
+        files_to_download.append((f"{url1}/hedis-ma-puf-{year}.zip",
+                              f"ma-hedis-pufs-{year}.zip"))
+    elif year == 2020:
+        continue
+    else:
+        files_to_download.append((f"{url1}/ma-hedis-pufs-{year}.zip",
+                              f"ma-hedis-pufs-{year}.zip"))
 
 # COMMAND ----------
 
@@ -67,7 +74,7 @@ for filename_tuple in files_to_download:
         continue
     else:
         print(f"{filename_tuple[0]} downloading...")
-        download_file(f"{url}/{filename_tuple[0]}", filename_tuple[1], volumepath_zip)
+        download_file(filename_tuple[0], filename_tuple[1], volumepath_zip)
 
 # COMMAND ----------
 
@@ -76,16 +83,16 @@ for filename_tuple in files_to_download:
 
 # COMMAND ----------
 
-files_downloaded = [x for x in Path(volumepath_zip).glob("monthly-enrollment-cpsc-*.zip")]
+files_downloaded = [x for x in Path(volumepath_zip).glob("ma-hedis-*.zip")]
 
 # COMMAND ----------
 
 for file_downloaded in files_downloaded:
     with zipfile.ZipFile(file_downloaded, "r") as zip_ref:
         for member in zip_ref.namelist():
-            if not Path(f"{volumepath}/cpsc/{member}").exists():
+            if not Path(f"{volumepath}/hedis/{member}").exists():
                 print(f"Extracting {member}...")
-                zip_ref.extract(member, path=f"{volumepath}/cpsc")
+                zip_ref.extract(member, path=f"{volumepath}/hedis")
 
 # COMMAND ----------
 
