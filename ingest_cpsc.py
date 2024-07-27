@@ -7,22 +7,14 @@
 
 # COMMAND ----------
 
-from pathlib import Path
-from pyspark.sql.functions import col, lit, to_date, regexp_replace
-from datetime import datetime
-from dateutil.parser import parse
-import re
-
-path = "/Volumes/mimi_ws_1/partcd/src/" # where all the input files are located
-catalog = "mimi_ws_1" # delta table destination catalog
-schema = "partcd" # delta table destination schema
-
+# MAGIC %run /Workspace/Repos/yubin.park@mimilabs.ai/mimi-common-utils/ingestion_utils
 
 # COMMAND ----------
 
-def change_header(header_org):
-    return [re.sub(r'\W+', '', column.lower().replace(' ','_'))
-            for column in header_org]
+from pyspark.sql.functions import col, lit, to_date, regexp_replace
+path = "/Volumes/mimi_ws_1/partcd/src/" # where all the input files are located
+catalog = "mimi_ws_1" # delta table destination catalog
+schema = "partcd" # delta table destination schema
 
 # COMMAND ----------
 
@@ -35,18 +27,21 @@ tablename = "cpsc_enrollment" # destination table
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC --DROP TABLE mimi_ws_1.partcd.cpsc_enrollment;
+
+# COMMAND ----------
+
 # We want to skip those files that are already in the delta tables.
 # We look up the table, and see if the files are already there or not.
 files_exist = {}
-writemode = "overwrite"
 if spark.catalog.tableExists(f"{catalog}.{schema}.{tablename}"):
-    files_exist = set([row["_input_file_date"] 
+    files_exist = set([row["mimi_src_file_date"] 
                    for row in 
                    (spark.read.table(f"{catalog}.{schema}.{tablename}")
-                            .select("_input_file_date")
+                            .select("mimi_src_file_date")
                             .distinct()
                             .collect())])
-    writemode = "append"
 
 # COMMAND ----------
 
@@ -72,29 +67,35 @@ for item in files:
             .option("header", "true")
             .load(str(item[1])))
     header = []
-    for col_old, col_new_ in zip(df.columns, change_header(df.columns)):
+    columns = df.columns
+    for col_old, col_new_ in zip(columns, change_header(columns)):
         
         col_new = legacy_columns.get(col_new_, col_new_)
         header.append(col_new)
         
         if col_new in int_columns:
-            df = df.withColumn(col_new, regexp_replace(col(col_old), "[\*\$,%]", "").cast("int"))
+            col_old_tmp = (col_old+"_")
+            df = (df.withColumnRenamed(col_old, col_old_tmp)
+                  .filter(col(col_old_tmp) != "*")
+                  .withColumn(col_new, col(col_old_tmp).cast('int')))
         else:
             df = df.withColumn(col_new, col(col_old))
             
     df = (df.select(*header)
-          .withColumn("_input_file_date", lit(item[0]))
-          .filter(col("enrollment").isNotNull()))
+        .withColumn("mimi_src_file_date", lit(item[0]))
+        .withColumn("mimi_src_file_name", lit(item[1].name))
+        .withColumn("mimi_dlt_load_date", lit(datetime.today().date()))
+        .filter(col("enrollment").isNotNull()))
     
     # Some of these are manually corrected above. However, just in case
     # we make the mergeSchema option "true"
+    mimi_src_file_date_str = item[0].strftime("%Y-%m-%d")
     (df.write
         .format('delta')
-        .mode(writemode)
+        .mode("overwrite")
         .option("mergeSchema", "true")
+        .option("replaceWhere", f"mimi_src_file_date = '{mimi_src_file_date_str}'")
         .saveAsTable(f"{catalog}.{schema}.{tablename}"))
-    
-    writemode="append"
 
 # COMMAND ----------
 
@@ -103,19 +104,22 @@ for item in files:
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC --DROP TABLE mimi_ws_1.partcd.cpsc_contract;
+
+# COMMAND ----------
+
 tablename = "cpsc_contract" # destination table
 # We want to skip those files that are already in the delta tables.
 # We look up the table, and see if the files are already there or not.
 files_exist = {}
-writemode = "overwrite"
 if spark.catalog.tableExists(f"{catalog}.{schema}.{tablename}"):
-    files_exist = set([row["_input_file_date"] 
+    files_exist = set([row["mimi_src_file_date"] 
                    for row in 
                    (spark.read.table(f"{catalog}.{schema}.{tablename}")
-                            .select("_input_file_date")
+                            .select("mimi_src_file_date")
                             .distinct()
                             .collect())])
-    writemode = "append"
 files = []
 for folderpath in Path(f"{path}/cpsc").glob("*"):
     for filepath in Path(f"{folderpath}").glob("CPSC_Contract_*"):
@@ -149,23 +153,29 @@ for item in files:
             df = df.withColumn(col_new, col(col_old))
             
     df = (df.select(*header)
-          .withColumn("_input_file_date", lit(item[0])))
+           .withColumn("mimi_src_file_date", lit(item[0]))
+            .withColumn("mimi_src_file_name", lit(item[1].name))
+            .withColumn("mimi_dlt_load_date", lit(datetime.today().date())))
     
     # Some of these are manually corrected above. However, just in case
     # we make the mergeSchema option "true"
+    mimi_src_file_date_str = item[0].strftime("%Y-%m-%d")
     (df.write
         .format('delta')
-        .mode(writemode)
+        .mode("overwrite")
         .option("mergeSchema", "true")
+        .option("replaceWhere", f"mimi_src_file_date = '{mimi_src_file_date_str}'")
         .saveAsTable(f"{catalog}.{schema}.{tablename}"))
-    
-    writemode="append"
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Combine them
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC OPTIMIZE mimi_ws_1.partcd.cpsc_enrollment;
-# MAGIC OPTIMIZE mimi_ws_1.partcd.cpsc_contract;
+# MAGIC --DROP TABLE mimi_ws_1.partcd.cpsc_combined;
 
 # COMMAND ----------
 
@@ -179,10 +189,12 @@ df_enroll = (spark.read.table(f"{catalog}.{schema}.cpsc_enrollment")
 df_contract = (spark.read.table(f"{catalog}.{schema}.cpsc_contract")
                 .filter(col("contract_id").isNotNull())
                 .filter(col("plan_id").isNotNull())
-                .dropDuplicates(["contract_id", "plan_id", "_input_file_date"]))
+                .drop("mimi_src_file_name")
+                .drop("mimi_dlt_load_date")
+                .dropDuplicates(["contract_id", "plan_id", "mimi_src_file_date"]))
 
 df_combined = df_enroll.join(df_contract, 
-                             on=["contract_id", "plan_id", "_input_file_date"], 
+                             on=["contract_id", "plan_id", "mimi_src_file_date"], 
                              how="left")
 (df_combined.write
         .format('delta')
