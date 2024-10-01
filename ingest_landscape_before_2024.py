@@ -69,7 +69,7 @@ pdf_lst = []
 cols = defaultdict(list)
 for filepath in filepath_lst:
     mimi_src_file_name = filepath.name
-    mimi_src_file_date = parse(filepath.stem[-8:]).date()
+    mimi_src_file_date = parse(filepath.stem[2:6] + '-01-01').date()
     skiprows = 0
     if filepath.stem[-8:] < '20230701':
         skiprows = 3
@@ -115,7 +115,7 @@ numeric_cols = ['monthly_consolidated_premium_includes_part_c_d',
 pdf_lst = []
 for filepath in filepath_lst:
     mimi_src_file_name = filepath.name
-    mimi_src_file_date = parse(filepath.stem[-8:]).date()
+    mimi_src_file_date = parse(filepath.stem[2:6] + '-01-01').date()
     skiprows = 0
     if filepath.stem[-8:] < '20230701':
         skiprows = 5
@@ -160,7 +160,7 @@ numeric_cols = ['monthly_drug_premium',
 pdf_lst = []
 for filepath in filepath_lst:
     mimi_src_file_name = filepath.name
-    mimi_src_file_date = parse(filepath.stem[-8:]).date()
+    mimi_src_file_date = parse(filepath.stem[2:6] + '-01-01').date()
     skiprows = 0
     if filepath.stem[-8:] < '20230701':
         skiprows = 3
@@ -205,7 +205,7 @@ numeric_cols = ['monthly_consolidated_premium_includes_part_c_d',
 pdf_lst = []
 for filepath in filepath_lst:
     mimi_src_file_name = filepath.name
-    mimi_src_file_date = parse(filepath.stem[-8:]).date()
+    mimi_src_file_date = parse(filepath.stem[2:6] + '-01-01').date()
     skiprows = 0
     if filepath.stem[-8:] == '20221014':
         skiprows = 6
