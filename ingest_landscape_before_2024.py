@@ -84,9 +84,12 @@ for filepath in filepath_lst:
             pdf[col] = pdf[col].apply(lambda x: str_to_num(x))
     if len(drop_cols) > 0:
         pdf.drop(columns=drop_cols, inplace=True)
+        
+    pdf = pdf.dropna(how='all')
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
+    
     pdf_lst.append(pdf)
 df = spark.createDataFrame(pd.concat(pdf_lst))
 
@@ -130,10 +133,14 @@ for filepath in filepath_lst:
             pdf[col] = pdf[col].apply(lambda x: str_to_num(x))
     if len(drop_cols) > 0:
         pdf.drop(columns=drop_cols, inplace=True)
+
+    pdf = pdf.dropna(how='all')
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
+
     pdf_lst.append(pdf)
+    
 df = spark.createDataFrame(pd.concat(pdf_lst))
 
 # COMMAND ----------
@@ -143,7 +150,7 @@ df.write.mode("overwrite").saveAsTable("mimi_ws_1.partcd.landscape_medicare_adva
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## pdp
+# MAGIC ## PDP
 
 # COMMAND ----------
 
@@ -175,10 +182,14 @@ for filepath in filepath_lst:
             pdf[col] = pdf[col].apply(lambda x: str_to_num(x))
     if len(drop_cols) > 0:
         pdf.drop(columns=drop_cols, inplace=True)
+    pdf = pdf.dropna(how='all')
+
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
+    
     pdf_lst.append(pdf)
+    
 df = spark.createDataFrame(pd.concat(pdf_lst))
 
 # COMMAND ----------
@@ -222,10 +233,15 @@ for filepath in filepath_lst:
             pdf[col] = pdf[col].apply(lambda x: str_to_num(x))
     if len(drop_cols) > 0:
         pdf.drop(columns=drop_cols, inplace=True)
+    
+    pdf = pdf.dropna(how='all')
+
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
+    
     pdf_lst.append(pdf)
+
 df = spark.createDataFrame(pd.concat(pdf_lst))
 
 # COMMAND ----------

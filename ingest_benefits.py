@@ -111,7 +111,11 @@ def add_column_desc(filename, pdf_metadata):
     for _, row in pdf_desc.iterrows():
         if row['name'] not in df.columns:
             continue
-        desc = row['title'].replace("'", "\\'")
+        desc = ''
+        if row['title']:
+            desc = row['title'].replace("'", "\\'")
+        if row['field_title']:
+            desc += ('; ' + row['field_title'].replace("'", "\\'"))
         stmt = (f"ALTER TABLE mimi_ws_1.partcd.{filename.lower()} ALTER COLUMN " + 
                 f"{row['name']} COMMENT '{desc}';")
         spark.sql(stmt)
@@ -182,14 +186,16 @@ for filepath in filepath_lst:
                   ~(pdf_metadata['name'].str.endswith('_id'))),'name'].to_list())
     for col in numeric_columns:
         pdf[col] = pd.to_numeric(pdf[col].apply(lambda x: x if isinstance(x, float) else x.replace(",", "")))
-    pdf["pbp_a_contract_period"] = pd.to_numeric(pdf["pbp_a_contract_period"])
+    if "pbp_a_contract_period" in pdf.columns:
+        pdf["pbp_a_contract_period"] = pd.to_numeric(pdf["pbp_a_contract_period"])
     pdf["pbp_a_snp_pct"] = pd.to_numeric(pdf["pbp_a_snp_pct"])
     pdf["pbp_a_bpt_ma_date_time"] = pdf["pbp_a_bpt_ma_date_time"].apply(lambda x: parse2(x))
     pdf["pbp_a_bpt_pd_date_time"] = pdf["pbp_a_bpt_pd_date_time"].apply(lambda x: parse2(x))
     pdf["pbp_a_bpt_msa_date_time"] = pdf["pbp_a_bpt_msa_date_time"].apply(lambda x: parse2(x))
     pdf["pbp_a_bpt_esrd_date_time"] = pdf["pbp_a_bpt_esrd_date_time"].apply(lambda x: parse2(x))
     pdf["pbp_a_upload_date_time"] = pdf["pbp_a_upload_date_time"].apply(lambda x: parse2(x))
-    pdf["pbp_a_last_data_entry_date"] = pd.to_datetime(pdf["pbp_a_last_data_entry_date"])
+    if "pbp_a_last_data_entry_date" in pdf.columns:
+        pdf["pbp_a_last_data_entry_date"] = pd.to_datetime(pdf["pbp_a_last_data_entry_date"])
     pdf["mimi_src_file_date"] = mimi_src_file_date
     pdf["mimi_src_file_name"] = mimi_src_file_name
     pdf["mimi_dlt_load_date"] = datetime.today().date()
