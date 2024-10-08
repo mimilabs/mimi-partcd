@@ -7,6 +7,10 @@
 
 # COMMAND ----------
 
+volumepath = "/Volumes/mimi_ws_1/partcd/src/benefits/"
+
+# COMMAND ----------
+
 # MAGIC %sql
 # MAGIC --DROP TABLE IF EXISTS mimi_ws_1.partcd.pbp_section_a;
 # MAGIC --DROP TABLE IF EXISTS mimi_ws_1.partcd.pbp_b13i_b19b_services_vbid_ssbci;
@@ -128,7 +132,7 @@ def add_column_desc(filename, pdf_metadata):
 
 # COMMAND ----------
 
-volumepath = "/Volumes/mimi_ws_1/partcd/src/benefits/"
+
 filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob("*dictionary.xlsx")], reverse=True)
 for filepath in filepath_lst:
     
@@ -341,3 +345,41 @@ add_column_desc(filename, pdf_metadata)
 # MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier IS '# [Medicare Advantage Benefits Information Section MRX TIER](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits (tiering) data, multiquarter';
 # MAGIC
 # MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier_vbid IS '# [Medicare Advantage Benefits Information Section MRX TIER VBID VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits (tiering) data, multiquarter';
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Plan Areas
+
+# COMMAND ----------
+
+filename = "PlanArea"
+filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob(f"{filename}.txt")], 
+                      reverse=True)
+pdf_lst = []
+for filepath in filepath_lst:
+    print(filepath)
+    mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
+    tokens = str(filepath.parent.stem).split('-')
+    mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
+
+    pdf = pd.read_csv(filepath, sep="\t", encoding="ISO-8859-1", dtype=str,
+                        quoting=csv.QUOTE_NONE)
+    pdf['contract_year'] = pd.to_numeric(pdf['contract_year']).astype('int')
+    pdf = pdf.dropna(axis=1, how='all')
+    pdf['mimi_src_file_date'] = mimi_src_file_date
+    pdf['mimi_src_file_name'] = mimi_src_file_name
+    pdf['mimi_dlt_load_date'] = datetime.today().date()
+    df = spark.createDataFrame(pdf)
+    (df.write.mode("overwrite")
+        .option('replaceWhere', f"mimi_src_file_name = '{mimi_src_file_name}'")
+        .saveAsTable("mimi_ws_1.partcd.pbp_plan_area"))
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_plan_area IS '# [Medicare Advantage Benefits Information Section PlanArea Files](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Service Area data by plan (includes EGHP service areas), multiquarter';
+
+# COMMAND ----------
+
+

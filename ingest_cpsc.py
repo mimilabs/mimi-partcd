@@ -11,7 +11,7 @@
 
 # COMMAND ----------
 
-from pyspark.sql.functions import col, lit, to_date, regexp_replace
+from pyspark.sql.functions import col, lit, to_date, regexp_replace, substring
 path = "/Volumes/mimi_ws_1/partcd/src/" # where all the input files are located
 catalog = "mimi_ws_1" # delta table destination catalog
 schema = "partcd" # delta table destination schema
@@ -46,13 +46,12 @@ if spark.catalog.tableExists(f"{catalog}.{schema}.{tablename}"):
 # COMMAND ----------
 
 files = []
-for folderpath in Path(f"{path}/cpsc").glob("*"):
-    for filepath in Path(f"{folderpath}").glob("CPSC_Enrollment_*"):
-        year = filepath.stem[-7:-3]
-        month = filepath.stem[-2:]
-        dt = parse(f"{year}-{month}-01").date()
-        if dt not in files_exist:
-            files.append((dt, filepath))
+for filepath in Path(path+"/cpsc").rglob("CPSC_Enrollment_*.csv"):
+    year = filepath.stem[-7:-3]
+    month = filepath.stem[-2:]
+    dt = parse(f"{year}-{month}-01").date()
+    if dt not in files_exist:
+        files.append((dt, filepath))
 files = sorted(files, key=lambda x: x[0], reverse=True)
 
 # COMMAND ----------
@@ -121,13 +120,12 @@ if spark.catalog.tableExists(f"{catalog}.{schema}.{tablename}"):
                             .distinct()
                             .collect())])
 files = []
-for folderpath in Path(f"{path}/cpsc").glob("*"):
-    for filepath in Path(f"{folderpath}").glob("CPSC_Contract_*"):
-        year = filepath.stem[-7:-3]
-        month = filepath.stem[-2:]
-        dt = parse(f"{year}-{month}-01").date()
-        if dt not in files_exist:
-            files.append((dt, filepath))
+for filepath in Path(f"{path}/cpsc").rglob("CPSC_Contract_*.csv"):
+    year = filepath.stem[-7:-3]
+    month = filepath.stem[-2:]
+    dt = parse(f"{year}-{month}-01").date()
+    if dt not in files_exist:
+        files.append((dt, filepath))
 files = sorted(files, key=lambda x: x[0], reverse=True)
 
 # COMMAND ----------
@@ -148,7 +146,7 @@ for item in files:
         header.append(col_new)
         
         if col_new in date_columns:
-            df = df.withColumn(col_new, to_date(col(col_old), "MM/dd/yyyy"))
+            df = df.withColumn(col_new, to_date(substring(col(col_old),1,10), "MM/dd/yyyy"))
         else:
             df = df.withColumn(col_new, col(col_old))
             
