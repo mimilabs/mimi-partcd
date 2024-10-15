@@ -231,6 +231,17 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Section D
+
+# COMMAND ----------
+
+filename = 'pbp_Section_D'
+generic_ingestion(volumepath, filename, pdf_metadata)
+add_column_desc(filename, pdf_metadata)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Supplemental Benefits
 
 # COMMAND ----------
@@ -308,6 +319,17 @@ add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## MISC
+
+# COMMAND ----------
+
+filename = 'pbp_b10_amb_trans'
+generic_ingestion(volumepath, filename, pdf_metadata)
+add_column_desc(filename, pdf_metadata)
+
+# COMMAND ----------
+
 # MAGIC %sql
 # MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_metadata IS '# [Medicare Advantage Benefits Information Metadata](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Contains the list of tables, columns, and their descriptions.; multiquarter
 # MAGIC ';
@@ -348,6 +370,11 @@ add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier_vbid IS '# [Medicare Advantage Benefits Information Section B10 Ambulance/Transportation data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Ambulance/Transportation data benefits (tiering) data, multiquarter';
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Plan Areas
 
@@ -379,6 +406,35 @@ for filepath in filepath_lst:
 
 # MAGIC %sql
 # MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_plan_area IS '# [Medicare Advantage Benefits Information Section PlanArea Files](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Service Area data by plan (includes EGHP service areas), multiquarter';
+
+# COMMAND ----------
+
+filename = "PlanRegionArea"
+filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob(f"{filename}.txt")], 
+                      reverse=True)
+pdf_lst = []
+for filepath in filepath_lst:
+    print(filepath)
+    mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
+    tokens = str(filepath.parent.stem).split('-')
+    mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
+
+    pdf = pd.read_csv(filepath, sep="\t", encoding="ISO-8859-1", dtype=str,
+                        quoting=csv.QUOTE_NONE)
+    pdf['contract_year'] = pd.to_numeric(pdf['contract_year']).astype('int')
+    pdf = pdf.dropna(axis=1, how='all')
+    pdf['mimi_src_file_date'] = mimi_src_file_date
+    pdf['mimi_src_file_name'] = mimi_src_file_name
+    pdf['mimi_dlt_load_date'] = datetime.today().date()
+    df = spark.createDataFrame(pdf)
+    (df.write.mode("overwrite")
+        .option('replaceWhere', f"mimi_src_file_name = '{mimi_src_file_name}'")
+        .saveAsTable("mimi_ws_1.partcd.pbp_plan_region_area"))
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_plan_region_area IS '# [Medicare Advantage Benefits Information Section PlanRegionArea Files](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Service Region Area data by plan (Regional MA plans and PDPs), multiquarter';
 
 # COMMAND ----------
 

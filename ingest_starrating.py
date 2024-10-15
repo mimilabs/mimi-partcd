@@ -259,9 +259,9 @@ df.write.mode('overwrite').saveAsTable('mimi_ws_1.partcd.starrating_display_hedi
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.starrating_measure_value IS '# Part C & D Performance Data (Star Rating), raw measure values - multiyear';
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.starrating_measure_star IS '# Part C & D Performance Data (Star Rating), Stars - multiyear';
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.starrating_display_hedis_measure IS '# Part C & D Performance Data (Star Rating), Display and HEDIS values - multiyear';
+# MAGIC --COMMENT ON TABLE mimi_ws_1.partcd.starrating_measure_value IS '# Part C & D Performance Data (Star Rating), raw measure values - multiyear';
+# MAGIC --COMMENT ON TABLE mimi_ws_1.partcd.starrating_measure_star IS '# Part C & D Performance Data (Star Rating), Stars - multiyear';
+# MAGIC --COMMENT ON TABLE mimi_ws_1.partcd.starrating_display_hedis_measure IS '# Part C & D Performance Data (Star Rating), Display and HEDIS values - multiyear';
 
 # COMMAND ----------
 
