@@ -330,6 +330,26 @@ add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
+filename = 'pbp_b17_eye_exams_wear'
+generic_ingestion(volumepath, filename, pdf_metadata)
+add_column_desc(filename, pdf_metadata)
+
+filename = 'pbp_b17_b19b_eye_exams_wear_vbid_uf'
+generic_ingestion(volumepath, filename, pdf_metadata)
+add_column_desc(filename, pdf_metadata)
+
+# COMMAND ----------
+
+filename = 'pbp_b18_hearing_exams_aids'
+generic_ingestion(volumepath, filename, pdf_metadata)
+add_column_desc(filename, pdf_metadata)
+
+filename = 'pbp_b18_b19b_hearing_exams_aids_vbid_uf'
+generic_ingestion(volumepath, filename, pdf_metadata)
+add_column_desc(filename, pdf_metadata)
+
+# COMMAND ----------
+
 # MAGIC %sql
 # MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_metadata IS '# [Medicare Advantage Benefits Information Metadata](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Contains the list of tables, columns, and their descriptions.; multiquarter
 # MAGIC ';
@@ -371,7 +391,21 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier_vbid IS '# [Medicare Advantage Benefits Information Section B10 Ambulance/Transportation data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Ambulance/Transportation data benefits (tiering) data, multiquarter';
+# MAGIC
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b10_amb_trans IS '# [Medicare Advantage Benefits Information Section B10 Ambulance/Transportation data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Ambulance/Transportation data benefits (tiering) data, multiquarter';
+# MAGIC
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_section_d IS '# [Medicare Advantage Benefits Information Section D data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains plan-level financial data such as plan premiums, global max plan benefit and out-of-pocket limits, and global deductibles.';
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b17_eye_exams_wear IS '# [Medicare Advantage Benefits Information Section B17 Eye Exams Wear data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Eye Exams and Eye Wear data, multiquarter';
+# MAGIC
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b17_b19b_eye_exams_wear_vbid_uf IS '# [Medicare Advantage Benefits Information Section B17 B19b Eye Exams Wear VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Eye Exams and Eye Wear VBID and UF data, multiquarter';
+# MAGIC
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b18_hearing_exams_aids IS '# [Medicare Advantage Benefits Information Section B18 Hearing Exams Aids data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Hearing Exams and Hearing Aids data, multiquarter';
+# MAGIC
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b18_b19b_hearing_exams_aids_vbid_uf IS '# [Medicare Advantage Benefits Information Section B18 B19b Hearing Exams Aids VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Hearing Exams and Hearing Aids VBID and UF data, multiquarter';
 
 # COMMAND ----------
 
