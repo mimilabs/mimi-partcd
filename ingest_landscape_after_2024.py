@@ -3,12 +3,18 @@
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Premium Info
+# MAGIC %run /Workspace/Repos/yubin.park@mimilabs.ai/mimi-common-utils/text_utils
 
 # COMMAND ----------
 
+import pyspark.sql.functions as F
+from collections import Counter
+
 volumepath = "/Volumes/mimi_ws_1/partcd/src/landscape/"
+#target_filename = "CY2025_Landscape_202409.csv"
+target_filename = "CY2026_Landscape_202509.csv"
+target_year = int(target_filename[2:6])
+mimi_src_file_date = parse(f"{target_year}-01-01").date()
 
 def str_to_num(value):
     # Remove spaces and the dollar sign
@@ -25,6 +31,50 @@ def str_to_num(value):
         return float(cleaned)
     except ValueError:
         return None
+
+# COMMAND ----------
+
+# NOTE: organization_name has too many variations and typos
+# We clean up the values to align over the years
+
+orgname_sourcetable = 'mimi_ws_1.partcd.landscape_plan_premium_report'
+orgname_sourcetable = 'mimi_ws_1.partcd.landscape_medicare_advantage'
+
+orgname_dict = Counter({x['organization_name']:x['count'] 
+                        for x in (spark.read.table(orgname_sourcetable)
+                        .groupBy('organization_name')
+                        .count().collect())})
+orgname2stdname = {}
+stdname2orgname = {}
+stdname_cnt = Counter()
+for k, v in orgname_dict.items():
+    stdname = standardize_entity(k).lower()
+    stdname_cnt[stdname] = stdname_cnt.get(stdname, 0) + v
+    orgname2stdname[k] = stdname
+    if stdname not in stdname2orgname:
+        stdname2orgname[stdname] = Counter()
+    
+    stdname2orgname[stdname][k] = v
+stdname2orgname = {k: v.most_common(1)[0][0] for k, v in stdname2orgname.items()}
+orgname_remap = create_typo_mapping(stdname_cnt, min_dist=2, 
+                                    ignore_lst=['and',
+                                                'inc',
+                                                'care',
+                                                'group',
+                                                ' '])
+
+# COMMAND ----------
+
+orgname_remap_v2 = {}
+for k, v in orgname2stdname.items():
+    stdname = orgname2stdname.get(v, v)
+    stdname = orgname_remap.get(stdname, stdname)
+    orgname_remap_v2[k] = stdname2orgname.get(stdname, k)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Premium Info
 
 # COMMAND ----------
 
@@ -61,7 +111,7 @@ plan_type_remap = {'HMO C-SNP': 'HMO',
 
 # COMMAND ----------
 
-pdf = pd.read_csv(f"{volumepath}CY2025_Landscape_202409.csv", dtype=str)
+pdf = pd.read_csv(f"{volumepath}{target_filename}", dtype=str)
 pdf.columns = change_header(pdf.columns)
 pdf = pdf.rename(columns=map_common)
 pdf = pdf.rename(columns={    
@@ -69,10 +119,8 @@ pdf = pdf.rename(columns={
     'annual_part_d_deductible_amount': 'part_d_drug_deductible',
     'drug_benefit_type': 'benefit_type',
 })
-
-# COMMAND ----------
-
 pdf['plan_type'] = pdf['plan_type'].replace(plan_type_remap)
+pdf['organization_name'] = pdf['organization_name'].replace(orgname_remap_v2)
 
 # COMMAND ----------
 
@@ -89,27 +137,24 @@ for col, dtype in dtypes:
 # COMMAND ----------
 
 pdf = pdf[selected_columns]
-pdf['mimi_src_file_date'] = parse('2025-01-01').date()
-pdf['mimi_src_file_name'] = 'CY2025_Landscape_202409.csv'
+pdf['mimi_src_file_date'] = mimi_src_file_date
+pdf['mimi_src_file_name'] = target_filename
 pdf['mimi_dlt_load_date'] = datetime.today().date()
 df = spark.createDataFrame(pdf)
 (df.write.mode('overwrite')
     .option('mergeSchema', 'true')
-    .option('replaceWhere', "mimi_src_file_name = 'CY2025_Landscape_202409.csv'")
+    .option('replaceWhere', f"mimi_src_file_name = '{target_filename}'")
     .saveAsTable('mimi_ws_1.partcd.landscape_plan_premium_report'))
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Break down by contract category
+# MAGIC This is to match with the old (legacy) formats
 
 # COMMAND ----------
 
-import pyspark.sql.functions as F
-
-# COMMAND ----------
-
-pdf = pd.read_csv(f"{volumepath}CY2025_Landscape_202409.csv", dtype=str)
+pdf = pd.read_csv(f"{volumepath}{target_filename}", dtype=str)
 pdf.columns = change_header(pdf.columns)
 pdf = pdf.rename(columns=map_common)
 pdf = pdf.rename(columns={    
@@ -117,10 +162,11 @@ pdf = pdf.rename(columns={
     'plan_type': 'type_of_medicare_health_plan',
     'annual_part_d_deductible_amount': 'annual_drug_deductible',
 })
+pdf['organization_name'] = pdf['organization_name'].replace(orgname_remap_v2)
 
 # COMMAND ----------
 
-pdf_ma = pdf.loc[pdf['contract_category_type'].isin(['MA', 'MAPD']),:]
+pdf_ma = pdf.loc[pdf['contract_category_type'].isin(['MA', 'MAPD']),:].copy()
 
 # COMMAND ----------
 
@@ -137,13 +183,13 @@ for col, dtype in dtypes:
 # COMMAND ----------
 
 pdf = pdf_ma[selected_columns]
-pdf['mimi_src_file_date'] = parse('2025-01-01').date()
-pdf['mimi_src_file_name'] = 'CY2025_Landscape_202409.csv'
+pdf['mimi_src_file_date'] = mimi_src_file_date
+pdf['mimi_src_file_name'] = target_filename
 pdf['mimi_dlt_load_date'] = datetime.today().date()
 df = spark.createDataFrame(pdf)
 (df.write.mode('overwrite')
     .option('mergeSchema', 'true')
-    .option('replaceWhere', "mimi_src_file_name = 'CY2025_Landscape_202409.csv'")
+    .option('replaceWhere', f"mimi_src_file_name = '{target_filename}'")
     .saveAsTable('mimi_ws_1.partcd.landscape_medicare_advantage'))
 
 # COMMAND ----------
@@ -153,7 +199,7 @@ df = spark.createDataFrame(pdf)
 
 # COMMAND ----------
 
-pdf = pd.read_csv(f"{volumepath}CY2025_Landscape_202409.csv", dtype=str)
+pdf = pd.read_csv(f"{volumepath}{target_filename}", dtype=str)
 pdf.columns = change_header(pdf.columns)
 pdf = pdf.rename(columns=map_common)
 pdf = pdf.rename(columns={    
@@ -162,10 +208,11 @@ pdf = pdf.rename(columns={
     'annual_part_d_deductible_amount': 'annual_drug_deductible',
     'part_d_total_premium': 'monthly_drug_premium'
 })
+pdf['plan_type'] = pdf['plan_type'].replace(plan_type_remap)
 
 # COMMAND ----------
 
-pdf_pdp = pdf.loc[pdf['contract_category_type'].isin(['PDP']),:]
+pdf_pdp = pdf.loc[pdf['contract_category_type'].isin(['PDP']),:].copy()
 
 # COMMAND ----------
 
@@ -182,14 +229,14 @@ for col, dtype in dtypes:
 # COMMAND ----------
 
 pdf = pdf_pdp[selected_columns]
-pdf['mimi_src_file_date'] = parse('2025-01-01').date()
-pdf['mimi_src_file_name'] = 'CY2025_Landscape_202409.csv'
+pdf['mimi_src_file_date'] = mimi_src_file_date
+pdf['mimi_src_file_name'] = target_filename
 pdf['mimi_dlt_load_date'] = datetime.today().date()
 df = spark.createDataFrame(pdf)
 (df.write.mode('overwrite')
     .option('mergeSchema', 'true')
-    .option('replaceWhere', "mimi_src_file_name = 'CY2025_Landscape_202409.csv'")
-    .saveAsTable('mimi_ws_1.partcd.landscape_prescription_drug_plan'))
+    .option('replaceWhere', f"mimi_src_file_name = '{target_filename}'")
+    .saveAsTable('mimi_ws_1.partcd.landscape_medicare_advantage'))
 
 # COMMAND ----------
 
@@ -198,9 +245,7 @@ df = spark.createDataFrame(pdf)
 
 # COMMAND ----------
 
-pdf = pd.read_csv(f"{volumepath}CY2025_Landscape_202409.csv", dtype=str)
-pdf.columns = change_header(pdf.columns)
-pdf = pd.read_csv(f"{volumepath}CY2025_Landscape_202409.csv", dtype=str)
+pdf = pd.read_csv(f"{volumepath}{target_filename}", dtype=str)
 pdf.columns = change_header(pdf.columns)
 pdf = pdf.rename(columns=map_common)
 pdf = pdf.rename(columns={    
@@ -209,10 +254,11 @@ pdf = pdf.rename(columns={
      'plan_type': 'type_of_medicare_health_plan',
      'annual_part_d_deductible_amount': 'annual_drug_deductible',
 })
+pdf['organization_name'] = pdf['organization_name'].replace(orgname_remap_v2)
 
 # COMMAND ----------
 
-pdf_snp = pdf.loc[pdf['contract_category_type'].isin(['SNP']),:]
+pdf_snp = pdf.loc[pdf['contract_category_type'].isin(['SNP']),:].copy()
 
 # COMMAND ----------
 
@@ -229,11 +275,11 @@ for col, dtype in dtypes:
 # COMMAND ----------
 
 pdf = pdf_snp[selected_columns]
-pdf['mimi_src_file_date'] = parse('2025-01-01').date()
-pdf['mimi_src_file_name'] = 'CY2025_Landscape_202409.csv'
+pdf['mimi_src_file_date'] = mimi_src_file_date
+pdf['mimi_src_file_name'] = target_filename
 pdf['mimi_dlt_load_date'] = datetime.today().date()
 df = spark.createDataFrame(pdf)
 (df.write.mode('overwrite')
     .option('mergeSchema', 'true')
-    .option('replaceWhere', "mimi_src_file_name = 'CY2025_Landscape_202409.csv'")
-    .saveAsTable('mimi_ws_1.partcd.landscape_special_needs_plan'))
+    .option('replaceWhere', f"mimi_src_file_name = '{target_filename}'")
+    .saveAsTable('mimi_ws_1.partcd.landscape_medicare_advantage'))

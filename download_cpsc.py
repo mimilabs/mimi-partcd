@@ -12,88 +12,54 @@
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Collect files to download
+!pip install bs4
 
 # COMMAND ----------
 
-import datetime
-from dateutil.relativedelta import *
+from bs4 import BeautifulSoup
+import requests
+import json
+import time
+from datetime import datetime
+from dateutil.parser import parse
 
-# COMMAND ----------
-
-url_base = "https://www.cms.gov/files/zip"
 volumepath = "/Volumes/mimi_ws_1/partcd/src"
 volumepath_zip = f"{volumepath}/zipfiles"
-retrieval_range = 24 # in months
+url_base = "https://www.cms.gov"
+page_start = "/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/monthly-enrollment-contract/plan/state/county"
+response = requests.get(url_base + page_start)
+soup = BeautifulSoup(response.content, 'html.parser')
 
 # COMMAND ----------
 
-ref_monthyear = datetime.datetime.now()
-files_to_download = [] # an array of tuples
-urls = []
-filenames = []
-for mon_diff in range(0, retrieval_range): 
-    target_dt = (ref_monthyear - relativedelta(months=mon_diff))
-    monthyear = target_dt.strftime('%B-%Y').lower()
-    target_dt_str = target_dt.strftime('%Y_%m')
-    filename = f"monthly-enrollment-cpsc-{monthyear}.zip"
-    if monthyear == "july-2023":
-        download_file(url_base + "/monthlycpsc202307.zip", 
-                      volumepath_zip, 
-                      filename)                      
-    elif monthyear == "november-2019":
-        download_file(url_base + "/cpsc-entrollment-2019-11.zip", 
-                      volumepath_zip, 
-                      filename)
-    elif monthyear == "january-2017":
-        download_file("https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/2017/jan/cpsc_enrollment_2017_01.zip",
-                      volumepath_zip,
-                      filename)
-    elif monthyear == "december-2016":
-        download_file('https://www.cms.gov/files/zip/cpscenrollment201612zip',
-                      volumepath_zip,
-                      filename)
-    elif target_dt_str < "2015_09":
-        folderpath = target_dt.strftime('%Y/%b').lower()
-        folderpath = (folderpath.replace('/sep', '/sept')
-                        .replace('/jul', '/july'))
-        download_file(f"https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/{folderpath}/cpsc-enrollment-{target_dt_str.replace('_','-')}.zip",
-                      volumepath_zip,
-                      filename)
-    elif target_dt_str < "2015_10":
-        folderpath = target_dt.strftime('%Y/%B').lower()
-        download_file(f"https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/{folderpath}/cpsc-enrollment-{target_dt_str.replace('_','-')}.zip",
-                      volumepath_zip,
-                      filename)
-    elif target_dt_str < "2016_03":
-        folderpath = target_dt.strftime('%Y/%b').lower()
-        download_file(f"https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/{folderpath}/cpsc-enrollment-{target_dt_str.replace('_','-')}.zip",
-                      volumepath_zip,
-                      filename)
-    elif target_dt_str < "2016_09":
-        folderpath = target_dt.strftime('%Y/%B').lower()
-        if folderpath == "2016/april":
-            folderpath = "2016/apr"        
-        download_file(f"https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/{folderpath}/cpsc-enrollment-{target_dt_str.replace('_','-')}.zip",
-                      volumepath_zip,
-                      filename)
-    elif target_dt_str < "2016_12":
-        folderpath = target_dt.strftime('%Y/%b').lower()
-        folderpath = folderpath.replace('/sep', '/sept')
-        download_file(f"https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/{folderpath}/cpsc-enrollment-{target_dt_str.replace('_','-')}.zip",
-                      volumepath_zip,
-                      filename)
-    elif target_dt_str < "2019_11":
-        download_file(
-            f"https://downloads.cms.gov/files/cpsc_enrollment_{target_dt_str}.zip",
-            volumepath_zip,
-            filename
-            )
-    else:
-        download_file(url_base + "/" + filename, 
-                      volumepath_zip, 
-                      filename) 
+current_year = datetime.today().year
+
+# COMMAND ----------
+
+pages = []
+for tr in soup.find("table").find("tbody").find_all("tr"):
+    td_lst = tr.find_all("td")
+    if len(td_lst) != 2:
+        continue
+    if (datetime.today() - parse(td_lst[-1].text.split()[-1].strip()+'-01')).days > 90:
+        continue
+    pages.append(tr.find("a").get("href"))
+
+# COMMAND ----------
+
+download_urls = []
+for page in pages:
+    response = requests.get(url_base + page)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    li = soup.find('li', class_="field__item")
+    if li is None:
+        continue
+    download_url = url_base + li.find('a').get('href')
+    download_urls.append(download_url)
+
+# COMMAND ----------
+
+download_files(download_urls, volumepath_zip)
 
 # COMMAND ----------
 
@@ -102,7 +68,8 @@ for mon_diff in range(0, retrieval_range):
 
 # COMMAND ----------
 
-files_downloaded = [x for x in Path(volumepath_zip).glob("monthly-enrollment-cpsc-*.zip")]
+files_downloaded = [x for x in Path(volumepath_zip).glob("monthly-enrollment-cpsc-*.zip")
+                    if (datetime.today() - datetime.fromtimestamp(x.stat().st_mtime)).days < 90]
 
 # COMMAND ----------
 

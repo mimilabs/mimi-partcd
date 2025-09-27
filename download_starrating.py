@@ -10,6 +10,7 @@
 import requests
 from bs4 import BeautifulSoup
 import re
+from datetime import datetime
 
 url_base = "https://www.cms.gov"
 volumepath = "/Volumes/mimi_ws_1/partcd/src/starrating/zipfiles"
@@ -36,7 +37,12 @@ download_files(urls, volumepath)
 
 # COMMAND ----------
 
-for path_zip in Path(volumepath).glob('*.zip'):
+files_downloaded = [x for x in Path(volumepath).glob("*.zip")
+                    if (datetime.today() - datetime.fromtimestamp(x.stat().st_mtime)).days < 90]
+
+# COMMAND ----------
+
+for path_zip in files_downloaded:
     path_unzip = (str(path_zip.parents[1]) + '/' + str(path_zip.stem))
     unzip(path_zip, path_unzip)
     for path_zip_child in Path(path_unzip).glob('*.zip'):

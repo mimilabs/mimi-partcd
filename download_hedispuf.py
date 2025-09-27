@@ -1,80 +1,59 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC
-# MAGIC # Overview
-# MAGIC
-# MAGIC This script downloads...
-# MAGIC
+# MAGIC %run /Workspace/Repos/yubin.park@mimilabs.ai/mimi-common-utils/download_utils
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Collect files to download
-
-# COMMAND ----------
-
-!pip install tqdm
+!pip install tqdm bs4
 
 # COMMAND ----------
 
 import requests
-from pathlib import Path
-from tqdm import tqdm
-import datetime
-from dateutil.relativedelta import *
-import zipfile
+from bs4 import BeautifulSoup
+import re
+from datetime import datetime
 
-# COMMAND ----------
-
-url1 = "https://www.cms.gov/files/zip" # 2019 ~ present
-url2 = "https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/ma-hedis-pufs" # 1997 ~ 2018
+url_base = "https://www.cms.gov"
 volumepath = "/Volumes/mimi_ws_1/partcd/src"
 volumepath_zip = f"{volumepath}/zipfiles"
 
 # COMMAND ----------
 
-files_to_download = []
-for year in range(1997, 2019):
-    if year == 2012:
-        files_to_download.append((f"{url2}/hedis-pufs-{year}-exl.zip",
-                              f"ma-hedis-pufs-{year}.zip"))
-    else:
-        files_to_download.append((f"{url2}/ma-hedis-pufs-{year}-exl.zip",
-                              f"ma-hedis-pufs-{year}.zip"))
-for year in range(2019, 2024):
-    if year == 2019:
-        files_to_download.append((f"{url1}/hedis-ma-puf-{year}.zip",
-                              f"ma-hedis-pufs-{year}.zip"))
-    elif year == 2020:
-        continue
-    else:
-        files_to_download.append((f"{url1}/ma-hedis-pufs-{year}.zip",
-                              f"ma-hedis-pufs-{year}.zip"))
+page = "/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/ma-hedis-public-use-files"
+response = requests.get(f"{url_base}{page}")
+response.raise_for_status()  # This will raise an error if the fetch fails
+soup = BeautifulSoup(response.text, 'html.parser')
 
 # COMMAND ----------
 
-def download_file(url, filename, folder):
-    # NOTE the stream=True parameter below
-    with requests.get(f"{url}", stream=True) as r:
-        r.raise_for_status()
-        with open(f"{folder}/{filename}", 'wb') as f:
-            for chunk in tqdm(r.iter_content(chunk_size=8192)): 
-                # If you have chunk encoded response uncomment if
-                # and set chunk_size parameter to None.
-                #if chunk: 
-                f.write(chunk)
+current_year = datetime.today().year
 
 # COMMAND ----------
 
-# Display the zip file links
-for filename_tuple in files_to_download:
-    # Check if the file exists
-    if Path(f"{volumepath_zip}/{filename_tuple[1]}").exists():
-        # print(f"{filename} exists, skipping...")
+pages = []
+for tr in soup.find("table").find("tbody").find_all("tr"):
+    td_lst = tr.find_all("td")
+    if len(td_lst) != 2:
         continue
-    else:
-        print(f"{filename_tuple[0]} downloading...")
-        download_file(filename_tuple[0], filename_tuple[1], volumepath_zip)
+    year = int(td_lst[-1].text.strip()[-4:])
+    if year < current_year - 3:
+        continue
+    pages.append(tr.find("a").get("href"))
+
+# COMMAND ----------
+
+download_urls = []
+for page in pages:
+    response = requests.get(url_base + page)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    li = soup.find('li', class_="field__item")
+    if li is None:
+        continue
+    download_url = url_base + li.find('a').get('href')
+    download_urls.append(download_url)
+
+# COMMAND ----------
+
+download_files(download_urls, volumepath_zip)
 
 # COMMAND ----------
 
@@ -83,16 +62,13 @@ for filename_tuple in files_to_download:
 
 # COMMAND ----------
 
-files_downloaded = [x for x in Path(volumepath_zip).glob("ma-hedis-*.zip")]
+files_downloaded = [x for x in Path(volumepath_zip).glob("ma-hedis-*.zip")
+                    if (datetime.today() - datetime.fromtimestamp(x.stat().st_mtime)).days < 90]
 
 # COMMAND ----------
 
 for file_downloaded in files_downloaded:
-    with zipfile.ZipFile(file_downloaded, "r") as zip_ref:
-        for member in zip_ref.namelist():
-            if not Path(f"{volumepath}/hedis/{member}").exists():
-                print(f"Extracting {member}...")
-                zip_ref.extract(member, path=f"{volumepath}/hedis")
+    unzip(file_downloaded, str(file_downloaded.parents[1]) + '/hedis')
 
 # COMMAND ----------
 

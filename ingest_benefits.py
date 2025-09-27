@@ -7,16 +7,9 @@
 
 # COMMAND ----------
 
+from datetime import datetime, timedelta
+
 volumepath = "/Volumes/mimi_ws_1/partcd/src/benefits/"
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC --DROP TABLE IF EXISTS mimi_ws_1.partcd.pbp_section_a;
-# MAGIC --DROP TABLE IF EXISTS mimi_ws_1.partcd.pbp_b13i_b19b_services_vbid_ssbci;
-# MAGIC --DROP TABLE IF EXISTS mimi_ws_1.partcd.pbp_b14c_b19b_preventive_vbid_uf;
-# MAGIC --DROP TABLE IF EXISTS mimi_ws_1.partcd.pbp_b15_partb_rx_drugs;
-# MAGIC --DROP TABLE IF EXISTS mimi_ws_1.partcd.pbp_section_d_opt;
 
 # COMMAND ----------
 
@@ -62,14 +55,34 @@ def parse2(x):
 
 # COMMAND ----------
 
-def generic_ingestion(volumepath, filename, pdf_metadata):
-    filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob(f"{filename}.txt")], reverse=True)
-    pdf_lst = []
+def get_latest(pattern, datethreshold = None):
+    filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob(pattern)], 
+                      key=lambda x: x.stat().st_mtime, reverse=True)
+    files_latest = {}
     for filepath in filepath_lst:
+        tokens = str(filepath.parent.stem).split('-')
+        mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
+        if 'quarter' in filepath.parent.stem and len(tokens) == 5:
+            mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
+        elif len(tokens) == 3:
+            mimi_src_file_date = parse(f"{tokens[2]}-01-01").date()
+        else:
+            continue
+        if mimi_src_file_date not in files_latest:
+            if (datethreshold is None or
+                mimi_src_file_date >= datethreshold):
+                files_latest[mimi_src_file_date] = filepath
+    return files_latest
+
+# COMMAND ----------
+
+def generic_ingestion(volumepath, filename, pdf_metadata, datethreshold = None):
+
+    files_latest = get_latest(f"{filename}.txt", (datetime.today() - timedelta(days=365)).date())
+
+    for mimi_src_file_date, filepath in files_latest.items():
         print(filepath)
         mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
-        tokens = str(filepath.parent.stem).split('-')
-        mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
         numeric_columns = (pdf_metadata.loc[(pdf_metadata['file']==filename),:]
                     .groupby('name')['type']
                     .apply(list)
@@ -93,18 +106,17 @@ def generic_ingestion(volumepath, filename, pdf_metadata):
         pdf["mimi_src_file_date"] = mimi_src_file_date
         pdf["mimi_src_file_name"] = mimi_src_file_name
         pdf["mimi_dlt_load_date"] = datetime.today().date()
-        pdf_lst.append(pdf)
 
-    pdf_all = pd.concat(pdf_lst)
-    pdf_all = pdf_all.dropna(axis=1, how='all')
-    df = spark.createDataFrame(pdf_all)
-    columns = ([x for x in df.columns if not x.startswith('mimi_')] + 
-            ['mimi_src_file_date', 'mimi_src_file_name', 'mimi_dlt_load_date'])
-    (df.select(*columns).write.format("delta")
-            .mode("overwrite")
-            .option("overwriteSchema", "true")
-            .option("mergeSchema", "true")
-            .saveAsTable(f"mimi_ws_1.partcd.{filename}"))
+        mimi_src_file_date_str = mimi_src_file_date.strftime("%Y-%m-%d")        
+
+        pdf = pdf.dropna(axis=1, how='all')
+        df = spark.createDataFrame(pdf)
+        (df.write.format("delta")
+                .mode("overwrite")
+                .option("overwriteSchema", "true")
+                .option("mergeSchema", "true")
+                .option("replaceWhere", f"mimi_src_file_date='{mimi_src_file_date_str}'")
+                .saveAsTable(f"mimi_ws_1.partcd.{filename}"))
 
 # COMMAND ----------
 
@@ -132,13 +144,9 @@ def add_column_desc(filename, pdf_metadata):
 
 # COMMAND ----------
 
-
-filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob("*dictionary.xlsx")], reverse=True)
-for filepath in filepath_lst:
-    
-    tokens = str(filepath.parent.stem).split('-')
+files_latest = get_latest("*dictionary.xlsx", (datetime.today() - timedelta(days=365)).date())
+for mimi_src_file_date, filepath in files_latest.items():
     mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
-    mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
     pdf = pd.read_excel(filepath, dtype=str)
     pdf.columns = change_header(pdf.columns)
     pdf['code_and_values'] = pdf['codes'] + ': ' + pdf["code_values"]
@@ -153,11 +161,11 @@ for filepath in filepath_lst:
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
     df = spark.createDataFrame(pdf)
+
     (df.write.format("delta")
         .mode("overwrite")
         .option("replaceWhere", f"mimi_src_file_name = '{mimi_src_file_name}'")
         .saveAsTable("mimi_ws_1.partcd.pbp_metadata"))
-    print(mimi_src_file_name)
 
 # COMMAND ----------
 
@@ -169,19 +177,20 @@ volumepath = "/Volumes/mimi_ws_1/partcd/src/benefits/"
 
 # COMMAND ----------
 
+datethreshold = (datetime.today() - timedelta(days=365)).date()
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Section A
 
 # COMMAND ----------
 
-filename = 'pbp_Section_A'
-filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob(f"{filename}.txt")], reverse=True)
-pdf_lst = []
-for filepath in filepath_lst:
+filename = "pbp_Section_A"
+files_latest = get_latest(f"{filename}.txt", datethreshold)
+for mimi_src_file_date, filepath in files_latest.items():
     print(filepath)
     mimi_src_file_name = "/".join(str(filepath).split('/')[-2:])
-    tokens = str(filepath.parent.stem).split('-')
-    mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
     pdf = pd.read_csv(filepath, sep="\t", encoding="ISO-8859-1", dtype=str)
     pdf.columns = change_header(pdf.columns)
     numeric_columns = set(pdf_metadata.loc[((pdf_metadata['file']==filename) & 
@@ -203,19 +212,16 @@ for filepath in filepath_lst:
     pdf["mimi_src_file_date"] = mimi_src_file_date
     pdf["mimi_src_file_name"] = mimi_src_file_name
     pdf["mimi_dlt_load_date"] = datetime.today().date()
-    pdf_lst.append(pdf)
-
-pdf_all = pd.concat(pdf_lst)
-pdf_all = pdf_all.dropna(axis=1, how='all')
-df = spark.createDataFrame(pdf_all)
-columns = ([x for x in df.columns if not x.startswith('mimi_')] + 
-            ['mimi_src_file_date', 'mimi_src_file_name', 'mimi_dlt_load_date'])
-(df.select(*columns).write.format("delta")
-        .mode("overwrite")
-        .option("overwriteSchema", "true")
-        .option("mergeSchema", "true")
-        .saveAsTable(f"mimi_ws_1.partcd.{filename.lower()}"))
-add_column_desc(filename, pdf_metadata)
+    pdf = pdf.dropna(axis=1, how='all')
+    df = spark.createDataFrame(pdf)
+    mimi_src_file_date_str = mimi_src_file_date.strftime('%Y-%m-%d')
+    (df.write.format("delta")
+            .mode("overwrite")
+            .option("overwriteSchema", "true")
+            .option("mergeSchema", "true")
+            .option("replaceWhere", f"mimi_src_file_date = '{mimi_src_file_date_str}'")
+            .saveAsTable(f"mimi_ws_1.partcd.{filename.lower()}"))
+    #add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
@@ -225,8 +231,8 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = 'pbp_b15_partb_rx_drugs'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
@@ -236,8 +242,8 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = 'pbp_Section_D'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
@@ -247,8 +253,8 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = 'pbp_Section_D_opt'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
@@ -258,14 +264,14 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = 'pbp_b13i_b19b_services_vbid_ssbci'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
 filename = 'pbp_b14c_b19b_preventive_vbid_uf'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
@@ -275,12 +281,12 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = 'pbp_b16_dental'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_b16_b19b_dental_vbid_uf'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
@@ -290,32 +296,32 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = 'pbp_mrx'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_mrx_vbid'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_mrx_gapCoverage'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_mrx_p'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_mrx_p_vbid'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_mrx_tier'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_mrx_tier_vbid'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
@@ -325,87 +331,93 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = 'pbp_b10_amb_trans'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
 filename = 'pbp_b17_eye_exams_wear'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_b17_b19b_eye_exams_wear_vbid_uf'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
 filename = 'pbp_b18_hearing_exams_aids'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 filename = 'pbp_b18_b19b_hearing_exams_aids_vbid_uf'
-generic_ingestion(volumepath, filename, pdf_metadata)
-add_column_desc(filename, pdf_metadata)
+generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_metadata IS '# [Medicare Advantage Benefits Information Metadata](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Contains the list of tables, columns, and their descriptions.; multiquarter
+# MAGIC /*
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_metadata IS '# [Medicare Advantage Benefits Information Metadata](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), the list of tables, columns, and their descriptions. | resolution: variable, interval: quarterly
 # MAGIC ';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_section_a IS '# [Medicare Advantage Benefits Information Section A](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Contains general plan information.; multiquarter
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_section_a IS '# [Medicare Advantage Benefits Information Section A](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), general plan information. | resolution: health_plan, interval: quarterly
 # MAGIC ';
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b13i_b19b_services_vbid_ssbci IS '# [Medicare Advantage Benefits Information Section B13I-B19B VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Non-Primarily Health Related Benefits for the Chronically III, Food and Produce, Meals, Pest Control, Transportation for Non-Medical Needs, Indoor Air Quality Equipment and Services and Other data.; multiquarter
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b13i_b19b_services_vbid_ssbci IS '# [Medicare Advantage Benefits Information Section B13I-B19B VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Non-Primarily Health Related Benefits for the Chronically III, Food and Produce, Meals, Pest Control, Transportation for Non-Medical Needs, Indoor Air Quality Equipment and Services and Other data. | resolution: health_plan, interval: quarterly
 # MAGIC ';
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b14c_b19b_preventive_vbid_uf IS '# [Medicare Advantage Benefits Information Section B14C-B19B VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Contains Supplemental Benefits Preventive Services VBID and UF data for Health Education/Wellness, Fitness Benefit, Counseling Services.; multiquarter
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b14c_b19b_preventive_vbid_uf IS '# [Medicare Advantage Benefits Information Section B14C-B19B VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Supplemental Benefits Preventive Services VBID and UF data for Health Education/Wellness, Fitness Benefit, Counseling Services. | resolution: health_plan, interval: quarterly
 # MAGIC ';
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b15_partb_rx_drugs IS '# [Medicare Advantage Benefits Information Section B15 PartB Rx](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Medicare Part B prescription drugs.; multiquarter
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b15_partb_rx_drugs IS '# [Medicare Advantage Benefits Information Section B15 PartB Rx](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Medicare Part B prescription drugs | resolution: health_plan, interval: quarterly
 # MAGIC ';
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_section_d_opt IS '# [Medicare Advantage Benefits Information Section D Optional](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) -  Contains plan-level benefit data descriptions of optional supplemental offerings including the optional benefit premium amounts, multiquarter
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_section_d_opt IS '# [Medicare Advantage Benefits Information Section D Optional](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), plan-level benefit data descriptions of optional supplemental offerings including the optional benefit premium amounts | resolution: health_plan, interval: quarterly
 # MAGIC ';
 # MAGIC
+# MAGIC */
 
 # COMMAND ----------
 
 # MAGIC %sql
+# MAGIC /*
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b16_dental IS '# [Medicare Advantage Benefits Information Section B16 Dental](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Preventive and Comprehensive Dental data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b16_dental IS '# [Medicare Advantage Benefits Information Section B16 Dental](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Preventive and Comprehensive Dental data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b16_b19b_dental_vbid_uf IS '# [Medicare Advantage Benefits Information Section B16-B19B Dental VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Preventive and Comprehensive Dental VBID and UF data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b16_b19b_dental_vbid_uf IS '# [Medicare Advantage Benefits Information Section B16-B19B Dental VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Preventive and Comprehensive Dental VBID and UF data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx IS '# [Medicare Advantage Benefits Information Section MRX](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Medicare Part D prescription drug benefits data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx IS '# [Medicare Advantage Benefits Information Section MRX](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_vbid IS '# [Medicare Advantage Benefits Information Section MRX VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Medicare Part D prescription drug benefits VBID data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_vbid IS '# [Medicare Advantage Benefits Information Section MRX VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits VBID data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_gapCoverage IS '# [Medicare Advantage Benefits Information Section MRX Gap Coverage](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), information on coverage of either tier(s) or specific drugs through the entire gap (ICL to catastrophic) | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_gapCoverage IS '# [Medicare Advantage Benefits Information Section MRX Gap Coverage](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains information on coverage of either tier(s) or specific drugs through the entire gap (ICL to catastrophic), multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_p IS '# [Medicare Advantage Benefits Information Section B14C-B19B MRX P](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Medicare Part D prescription drug benefits (post OOP threshold) data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_p IS '# [Medicare Advantage Benefits Information Section B14C-B19B MRX P](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits (post OOP threshold) data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_p_vbid IS '# [Medicare Advantage Benefits Information Section MRX P VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Medicare Part D prescription drug benefits (post OOP threshold) VBID data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_p_vbid IS '# [Medicare Advantage Benefits Information Section MRX P VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits (post OOP threshold) VBID data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier IS '# [Medicare Advantage Benefits Information Section MRX TIER](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Medicare Part D prescription drug benefits (tiering) data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier IS '# [Medicare Advantage Benefits Information Section MRX TIER](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits (tiering) data, multiquarter';
-# MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier_vbid IS '# [Medicare Advantage Benefits Information Section MRX TIER VBID VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Medicare Part D prescription drug benefits (tiering) data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_mrx_tier_vbid IS '# [Medicare Advantage Benefits Information Section MRX TIER VBID VBID](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Medicare Part D prescription drug benefits (tiering) data | resolution: health_plan, interval: quarterly';
+# MAGIC */
 
 # COMMAND ----------
 
 # MAGIC %sql
+# MAGIC /*
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b10_amb_trans IS '# [Medicare Advantage Benefits Information Section B10 Ambulance/Transportation data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Ambulance/Transportation data benefits (tiering) data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b10_amb_trans IS '# [Medicare Advantage Benefits Information Section B10 Ambulance/Transportation data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Ambulance/Transportation data benefits (tiering) data, multiquarter';
-# MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_section_d IS '# [Medicare Advantage Benefits Information Section D data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains plan-level financial data such as plan premiums, global max plan benefit and out-of-pocket limits, and global deductibles.';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_section_d IS '# [Medicare Advantage Benefits Information Section D data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), plan-level financial data such as plan premiums, global max plan benefit and out-of-pocket limits, and global deductible data | resolution: health_plan, interval: quarterly';
+# MAGIC */
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b17_eye_exams_wear IS '# [Medicare Advantage Benefits Information Section B17 Eye Exams Wear data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Eye Exams and Eye Wear data, multiquarter';
+# MAGIC /*
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b17_eye_exams_wear IS '# [Medicare Advantage Benefits Information Section B17 Eye Exams Wear data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Eye Exams and Eye Wear data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b17_b19b_eye_exams_wear_vbid_uf IS '# [Medicare Advantage Benefits Information Section B17 B19b Eye Exams Wear VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Eye Exams and Eye Wear VBID and UF data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b17_b19b_eye_exams_wear_vbid_uf IS '# [Medicare Advantage Benefits Information Section B17 B19b Eye Exams Wear VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Eye Exams and Eye Wear VBID and UF data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b18_hearing_exams_aids IS '# [Medicare Advantage Benefits Information Section B18 Hearing Exams Aids data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Hearing Exams and Hearing Aids data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b18_hearing_exams_aids IS '# [Medicare Advantage Benefits Information Section B18 Hearing Exams Aids data](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Hearing Exams and Hearing Aids data | resolution: health_plan, interval: quarterly';
 # MAGIC
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b18_b19b_hearing_exams_aids_vbid_uf IS '# [Medicare Advantage Benefits Information Section B18 B19b Hearing Exams Aids VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Hearing Exams and Hearing Aids VBID and UF data, multiquarter';
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_b18_b19b_hearing_exams_aids_vbid_uf IS '# [Medicare Advantage Benefits Information Section B18 B19b Hearing Exams Aids VBID UF](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Hearing Exams and Hearing Aids VBID and UF data | resolution: health_plan, interval: quarterly';
+# MAGIC */
 
 # COMMAND ----------
 
@@ -415,15 +427,11 @@ add_column_desc(filename, pdf_metadata)
 # COMMAND ----------
 
 filename = "PlanArea"
-filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob(f"{filename}.txt")], 
-                      reverse=True)
-pdf_lst = []
-for filepath in filepath_lst:
+files_latest = get_latest(f"{filename}.txt", datethreshold)
+
+for mimi_src_file_date, filepath in files_latest.items():
     print(filepath)
     mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
-    tokens = str(filepath.parent.stem).split('-')
-    mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
-
     pdf = pd.read_csv(filepath, sep="\t", encoding="ISO-8859-1", dtype=str,
                         quoting=csv.QUOTE_NONE)
     pdf['contract_year'] = pd.to_numeric(pdf['contract_year']).astype('int')
@@ -431,28 +439,29 @@ for filepath in filepath_lst:
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
+
+    mimi_src_file_date_str = mimi_src_file_date.strftime("%Y-%m-%d")
+    
+
     df = spark.createDataFrame(pdf)
     (df.write.mode("overwrite")
-        .option('replaceWhere', f"mimi_src_file_name = '{mimi_src_file_name}'")
+        .option('replaceWhere', f"mimi_src_file_date = '{mimi_src_file_date_str}'")
         .saveAsTable("mimi_ws_1.partcd.pbp_plan_area"))
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_plan_area IS '# [Medicare Advantage Benefits Information Section PlanArea Files](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Service Area data by plan (includes EGHP service areas), multiquarter';
+# MAGIC /*
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_plan_area IS '# [Medicare Advantage Benefits Information Section PlanArea Files](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Contains Service Area data by plan (includes EGHP service areas) | resolution: health_plan, interval: quarterly';
+# MAGIC */
 
 # COMMAND ----------
 
 filename = "PlanRegionArea"
-filepath_lst = sorted([filepath for filepath in Path(volumepath).rglob(f"{filename}.txt")], 
-                      reverse=True)
-pdf_lst = []
-for filepath in filepath_lst:
+files_latest = get_latest(f"{filename}.txt", datethreshold)
+for mimi_src_file_date, filepath in files_latest.items():
     print(filepath)
     mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
-    tokens = str(filepath.parent.stem).split('-')
-    mimi_src_file_date = parse(f"{tokens[2]}-{int(tokens[-1])*3-2}-01").date()
-
     pdf = pd.read_csv(filepath, sep="\t", encoding="ISO-8859-1", dtype=str,
                         quoting=csv.QUOTE_NONE)
     pdf['contract_year'] = pd.to_numeric(pdf['contract_year']).astype('int')
@@ -460,15 +469,18 @@ for filepath in filepath_lst:
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
+    mimi_src_file_date_str = mimi_src_file_date.strftime("%Y-%m-%d")
     df = spark.createDataFrame(pdf)
     (df.write.mode("overwrite")
-        .option('replaceWhere', f"mimi_src_file_name = '{mimi_src_file_name}'")
+        .option('replaceWhere', f"mimi_src_file_date = '{mimi_src_file_date_str}'")
         .saveAsTable("mimi_ws_1.partcd.pbp_plan_region_area"))
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_plan_region_area IS '# [Medicare Advantage Benefits Information Section PlanRegionArea Files](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data) - Contains Service Region Area data by plan (Regional MA plans and PDPs), multiquarter';
+# MAGIC /*
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.pbp_plan_region_area IS '# [Medicare Advantage Benefits Information Section PlanRegionArea Files](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data), Contains Service Region Area data by plan (Regional MA plans and PDPs) | resolution: health_plan, interval: quarterly';
+# MAGIC */
 
 # COMMAND ----------
 

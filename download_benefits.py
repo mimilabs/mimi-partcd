@@ -17,68 +17,60 @@
 
 # COMMAND ----------
 
+!pip install bs4
+
+# COMMAND ----------
+
 import datetime
 from dateutil.relativedelta import *
 import math
 
 # COMMAND ----------
 
-url = "https://www.cms.gov/files/zip"
-url2 = "https://www.cms.gov/research-statistics-data-and-systems/statistics-trends-and-reports/mcradvpartdenroldata/downloads/pbp-pufs"
+from bs4 import BeautifulSoup
+import requests
+import json
+import time
+from datetime import datetime
+
 volumepath = "/Volumes/mimi_ws_1/partcd/src"
 volumepath_zip = f"{volumepath}/zipfiles"
-retrieval_range = 120 # in months
+url_base = "https://www.cms.gov"
+page_start = "/data-research/statistics-trends-and-reports/medicare-advantagepart-d-contract-and-enrollment-data/benefits-data"
+response = requests.get(url_base + page_start)
+soup = BeautifulSoup(response.content, 'html.parser')
 
 # COMMAND ----------
 
-ref_monthyear = datetime.datetime.now() + relativedelta(months=3) 
-files_to_download = {} # an array of tuples
-for mon_diff in range(0, retrieval_range): 
-    target_date = (ref_monthyear - relativedelta(months=mon_diff))
-    year = target_date.year 
-    quarter = int(math.ceil(target_date.month/3.0))
-    if year == 2024 and quarter == 2:
-        continue
-    elif year==2022 and quarter == 4:
-        continue
-    elif year == 2021 and quarter == 4:
-        continue
-    elif year == 2020 and quarter == 3:
-        continue
-    
-    generic_name = f"pbp-benefits-{year}-quarter-{quarter}.zip"
-    if year == 2025 and quarter == 1:
-        files_to_download[generic_name] = url + "/pbp-benefits-2025.zip"
-    elif year == 2022 and quarter == 3:
-        files_to_download[generic_name] = url + "/pbp-benefits-2022-updated-07012022.zip" 
-    elif year == 2021 and quarter == 1:
-        files_to_download[generic_name] = url + "/pbp-benefits-2021-01122021.zip"
-    elif year == 2021 and quarter == 2:
-        files_to_download[generic_name] = url + "/pbp-benefits-2021-04012021.zip"
-    elif year == 2021 and quarter == 3:
-        files_to_download[generic_name] = url + "/pbp-benefits-2021-updated-08022021.zip"
-    elif year == 2021 and quarter == 1:
-        files_to_download[generic_name] = url2 + f"/pbp-benefits-{year}-q{quarter}.zip"
-    elif year == 2020 and quarter in {2, 4}:
-         files_to_download[generic_name] = url + "/" + generic_name
-    elif year < 2021 and year >= 2018:
-        files_to_download[generic_name] = url2 + f"/pbp-benefits-{year}-q{quarter}.zip"
-    elif year < 2018:
-        generic_name = f"pbp-benefits-{year}-quarter-1.zip"
-        files_to_download[generic_name] = url2 + f"/pbp-benefits-{year}.zip"
-    else:    
-        files_to_download[generic_name] = url + "/" + generic_name
-
+current_year = datetime.today().year
 
 # COMMAND ----------
 
-url_pairs = [(v, k) for k, v in files_to_download.items()]
-urls = [pair[0] for pair in url_pairs]
-filenames = [pair[1] for pair in url_pairs]
+pages = []
+for tr in soup.find("table").find("tbody").find_all("tr"):
+    td_lst = tr.find_all("td")
+    if len(td_lst) != 2:
+        continue
+    year = int(td_lst[-1].text.strip()[-4:])
+    if year < current_year - 1:
+        continue
+    pages.append(tr.find("a").get("href"))
 
 # COMMAND ----------
 
-download_files(urls, volumepath_zip, filenames)
+download_urls = []
+for page in pages:
+    response = requests.get(url_base + page)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    li = soup.find('li', class_="field__item")
+    if li is None:
+        continue
+    download_url = url_base + li.find('a').get('href')
+    download_urls.append(download_url)
+
+# COMMAND ----------
+
+download_files(download_urls, volumepath_zip)
 
 # COMMAND ----------
 
@@ -87,9 +79,14 @@ download_files(urls, volumepath_zip, filenames)
 
 # COMMAND ----------
 
+folders_existing = {x.name for x in Path(volumepath + "/benefits").glob("*")}
+
+# COMMAND ----------
+
 for filepath in Path(volumepath_zip).glob("pbp-*.zip"):
+    if filepath.stem in folders_existing:
+        continue
     unzip(filepath, volumepath + f"/benefits/{filepath.stem}")
-    
 
 # COMMAND ----------
 
