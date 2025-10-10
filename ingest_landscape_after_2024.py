@@ -79,6 +79,7 @@ for k, v in orgname2stdname.items():
 # COMMAND ----------
 
 map_common = {
+    'state_territory_name': 'state',
     'state_name': 'state',
     'county_name': 'county', 
     'special_needs_plan_snp_indicator': 'special_needs_plan',
@@ -166,7 +167,11 @@ pdf['organization_name'] = pdf['organization_name'].replace(orgname_remap_v2)
 
 # COMMAND ----------
 
-pdf_ma = pdf.loc[pdf['contract_category_type'].isin(['MA', 'MAPD']),:].copy()
+pdf.groupby('contract_category_type').count()
+
+# COMMAND ----------
+
+pdf_ma = pdf.loc[pdf['contract_category_type'].isin(['MA', 'MAPD', 'MA-PD']),:].copy()
 
 # COMMAND ----------
 
@@ -236,7 +241,7 @@ df = spark.createDataFrame(pdf)
 (df.write.mode('overwrite')
     .option('mergeSchema', 'true')
     .option('replaceWhere', f"mimi_src_file_name = '{target_filename}'")
-    .saveAsTable('mimi_ws_1.partcd.landscape_medicare_advantage'))
+    .saveAsTable('mimi_ws_1.partcd.landscape_prescription_drug_plan'))
 
 # COMMAND ----------
 
@@ -282,4 +287,8 @@ df = spark.createDataFrame(pdf)
 (df.write.mode('overwrite')
     .option('mergeSchema', 'true')
     .option('replaceWhere', f"mimi_src_file_name = '{target_filename}'")
-    .saveAsTable('mimi_ws_1.partcd.landscape_medicare_advantage'))
+    .saveAsTable('mimi_ws_1.partcd.landscape_special_needs_plan'))
+
+# COMMAND ----------
+
+
