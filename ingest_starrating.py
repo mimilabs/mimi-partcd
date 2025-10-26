@@ -111,6 +111,68 @@ def parse_file(filepath):
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Overall Ratings
+
+# COMMAND ----------
+
+file_lst = [filepath for filepath in Path(path).rglob("*Summary Rating*.csv")]
+file_lst = sorted(file_lst, reverse=True)
+pdf_lst = []
+for filepath in file_lst:
+    performance_year = int(filepath.stem[:4])
+    pdf = pd.read_csv(filepath, 
+                      skiprows=1, 
+                      encoding='ISO-8859-1',
+                      dtype=str)
+    pdf.columns = change_header2(pdf.columns)
+    rename_map = {}
+    for colname in pdf.columns:
+        if 'part_c_summary' in colname:
+            rename_map[colname] = 'part_c_summary_raw'
+        elif 'part_d_summary' in colname:
+            rename_map[colname] = 'part_d_summary_raw'
+        elif 'overall' in colname:
+            rename_map[colname] = 'overall_summary_raw'
+        elif f'{performance_year-2}_disaster' in colname:
+            rename_map[colname] = 'disaster_py_minus_2'
+        elif f'{performance_year-3}_disaster' in colname:
+            rename_map[colname] = 'disaster_py_minus_3'
+    pdf.rename(columns=rename_map, inplace=True)
+    pdf['part_c_summary'] = pd.to_numeric(pdf['part_c_summary_raw'],        
+                                          errors='coerce')
+    pdf['part_d_summary'] = pd.to_numeric(pdf['part_d_summary_raw'],        
+                                          errors='coerce')
+    pdf['overall_summary'] = pd.to_numeric(pdf['overall_summary_raw'],        
+                                          errors='coerce')
+    pdf = pdf.loc[:,['contract_number',
+                     'organization_type', 
+                     'contract_name', 
+                     'organization_marketing_name', 
+                     'parent_organization',
+                     'snp',
+                     'part_c_summary',
+                     'part_d_summary',
+                     'overall_summary',
+                     'part_c_summary_raw',
+                     'part_d_summary_raw',
+                     'overall_summary_raw',
+                     'disaster_py_minus_2',
+                     'disaster_py_minus_3']]
+    mimi_src_file_date = parse(re.search(r'\((.*?)\)', 
+                                         filepath.stem).group(1)).date()
+    pdf['performance_year'] = performance_year
+    pdf['mimi_src_file_date'] = mimi_src_file_date
+    pdf['mimi_src_file_name'] = filepath.name
+    pdf['mimi_dlt_load_date'] = datetime.today().date()
+    pdf_lst.append(pdf)
+(
+    spark.createDataFrame(pd.concat(pdf_lst))
+        .write.mode('overwrite').saveAsTable('mimi_ws_1.partcd.starrating_overall_summary')
+)
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Values
 
 # COMMAND ----------
@@ -255,6 +317,11 @@ df = spark.createDataFrame(pdf_full)
 # COMMAND ----------
 
 df.write.mode('overwrite').saveAsTable('mimi_ws_1.partcd.starrating_display_hedis_measure')
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC COMMENT ON TABLE mimi_ws_1.partcd.starrating_overall_summary IS '# Overall Ratings  (Contract-level Rating) from the [Part C & D Performance Data (Star Rating) files](https://www.cms.gov/medicare/health-drug-plans/part-c-d-performance-data) | resolution: health_plan, interval: yearly';
 
 # COMMAND ----------
 
