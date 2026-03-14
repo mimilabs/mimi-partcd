@@ -78,10 +78,14 @@ def get_latest(pattern, datethreshold = None):
 
 def generic_ingestion(volumepath, filename, pdf_metadata, datethreshold = None):
 
-    files_latest = get_latest(f"{filename}.txt", (datetime.today() - timedelta(days=365)).date())
+    files_latest = get_latest(f"{filename}.txt", 
+                              (datetime.today() - timedelta(days=365)).date())
 
     for mimi_src_file_date, filepath in files_latest.items():
         print(filepath)
+        if not Path(filepath).exists():
+            print(f"{filepath} does not exist.")
+            continue
         mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
         numeric_columns = (pdf_metadata.loc[(pdf_metadata['file']==filename),:]
                     .groupby('name')['type']
@@ -110,6 +114,9 @@ def generic_ingestion(volumepath, filename, pdf_metadata, datethreshold = None):
         mimi_src_file_date_str = mimi_src_file_date.strftime("%Y-%m-%d")        
 
         pdf = pdf.dropna(axis=1, how='all')
+        if pdf.shape[0] == 0:
+            print(f"File {mimi_src_file_name} is empty.")
+            continue
         df = spark.createDataFrame(pdf)
         (df.write.format("delta")
                 .mode("overwrite")
@@ -145,6 +152,11 @@ def add_column_desc(filename, pdf_metadata):
 # COMMAND ----------
 
 files_latest = get_latest("*dictionary.xlsx", (datetime.today() - timedelta(days=365)).date())
+files_latest
+
+# COMMAND ----------
+
+files_latest = get_latest("*dictionary.xlsx", (datetime.today() - timedelta(days=365)).date())
 for mimi_src_file_date, filepath in files_latest.items():
     mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
     pdf = pd.read_excel(filepath, dtype=str)
@@ -160,6 +172,7 @@ for mimi_src_file_date, filepath in files_latest.items():
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
+    pdf.dropna(axis=1, how='all', inplace=True)
     df = spark.createDataFrame(pdf)
 
     (df.write.format("delta")
@@ -197,24 +210,27 @@ for mimi_src_file_date, filepath in files_latest.items():
                   (pdf_metadata['type']=='NUM') &
                   (pdf_metadata['name']!='version') & 
                   ~(pdf_metadata['name'].str.endswith('_id'))),'name'].to_list())
+    time_columns = [colname for colname in pdf.columns 
+                    if colname.endswith('_time')]
     for col in numeric_columns:
         pdf[col] = pd.to_numeric(pdf[col].apply(lambda x: x if isinstance(x, float) else x.replace(",", "")))
     if "pbp_a_contract_period" in pdf.columns:
         pdf["pbp_a_contract_period"] = pd.to_numeric(pdf["pbp_a_contract_period"])
     pdf["pbp_a_snp_pct"] = pd.to_numeric(pdf["pbp_a_snp_pct"])
-    pdf["pbp_a_bpt_ma_date_time"] = pdf["pbp_a_bpt_ma_date_time"].apply(lambda x: parse2(x))
-    pdf["pbp_a_bpt_pd_date_time"] = pdf["pbp_a_bpt_pd_date_time"].apply(lambda x: parse2(x))
-    pdf["pbp_a_bpt_msa_date_time"] = pdf["pbp_a_bpt_msa_date_time"].apply(lambda x: parse2(x))
-    pdf["pbp_a_bpt_esrd_date_time"] = pdf["pbp_a_bpt_esrd_date_time"].apply(lambda x: parse2(x))
-    pdf["pbp_a_upload_date_time"] = pdf["pbp_a_upload_date_time"].apply(lambda x: parse2(x))
+         
+    for col in time_columns:
+        pdf[col] = pdf[col].apply(lambda x: parse2(x))
+
     if "pbp_a_last_data_entry_date" in pdf.columns:
         pdf["pbp_a_last_data_entry_date"] = pd.to_datetime(pdf["pbp_a_last_data_entry_date"])
+
     pdf["mimi_src_file_date"] = mimi_src_file_date
     pdf["mimi_src_file_name"] = mimi_src_file_name
     pdf["mimi_dlt_load_date"] = datetime.today().date()
     pdf = pdf.dropna(axis=1, how='all')
     df = spark.createDataFrame(pdf)
     mimi_src_file_date_str = mimi_src_file_date.strftime('%Y-%m-%d')
+    
     (df.write.format("delta")
             .mode("overwrite")
             .option("overwriteSchema", "true")
@@ -295,6 +311,12 @@ generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
 
 # COMMAND ----------
 
+# 2026 PBP data, mrx_formulary_tiers_num is encoded as CHAR, so change it to NUM
+pdf_metadata.loc[((pdf_metadata['name']=='mrx_formulary_tiers_num')&
+                  (pdf_metadata['type']=='CHAR')),'type'] = 'NUM'
+
+# COMMAND ----------
+
 filename = 'pbp_mrx'
 generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
 #add_column_desc(filename, pdf_metadata)
@@ -340,8 +362,8 @@ filename = 'pbp_b17_eye_exams_wear'
 generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
 #add_column_desc(filename, pdf_metadata)
 
-filename = 'pbp_b17_b19b_eye_exams_wear_vbid_uf'
-generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
+#filename = 'pbp_b17_b19b_eye_exams_wear_vbid_uf'
+#generic_ingestion(volumepath, filename, pdf_metadata, datethreshold)
 #add_column_desc(filename, pdf_metadata)
 
 # COMMAND ----------

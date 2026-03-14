@@ -40,7 +40,7 @@ for filepath in file_lst:
             .write
             .mode('overwrite')
             .option('replaceWhere', f"mimi_src_file_name = '{filepath.name}'")
-            .option('mergeSchema', 'true')
+            #.option('mergeSchema', 'true')
             .saveAsTable('mimi_ws_1.partcd.plan_crosswalk')
     )
 

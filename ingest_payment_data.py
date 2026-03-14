@@ -19,6 +19,7 @@ files_exist = {
 for filepath in Path(volumepath).rglob("*PartCCountyLevel.xlsx"):
     mimi_src_file_date = parse(filepath.stem[:4]+'-12-31').date()
     mimi_src_file_name = filepath.parent.stem + '/' + filepath.name
+    
     if mimi_src_file_name in files_exist:
         continue
 
@@ -44,6 +45,17 @@ for filepath in Path(volumepath).rglob("*PartCCountyLevel.xlsx"):
     for col in pdf.columns:
         if col.endswith("payment") or col.endswith("score"):
             pdf[col] = pd.to_numeric(pdf[col], errors='coerce').astype(float)
+
+    # After reading the dataframe, auto-detect swap
+    if pdf['avg_risk_score'].median() > 100:  
+        # Risk scores should be ~1.0, not ~$900
+        # Columns are swapped - fix them
+        # this swap happened for 2024 files
+        pdf = pdf.rename(columns={
+            'avg_risk_score': 'avg_ab_pmpm_payment',
+            'avg_ab_pmpm_payment': 'avg_risk_score'
+        })
+
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
@@ -87,6 +99,17 @@ for filepath in Path(volumepath).rglob("*PartCPlan*Level.xlsx"):
     for col in pdf.columns:
         if col.endswith("payment") or col.endswith("score"):
             pdf[col] = pd.to_numeric(pdf[col], errors='coerce').astype(float)
+
+    # After reading the dataframe, auto-detect swap
+    if pdf['avg_partc_risk_score'].median() > 100:  
+        # Risk scores should be ~1.0, not ~$900
+        # Columns are swapped - fix them
+        # this swap happened for 2024 files
+        pdf = pdf.rename(columns={
+            'avg_partc_risk_score': 'avg_ab_pmpm_payment',
+            'avg_ab_pmpm_payment': 'avg_partc_risk_score'
+        })
+
     pdf['mimi_src_file_date'] = mimi_src_file_date
     pdf['mimi_src_file_name'] = mimi_src_file_name
     pdf['mimi_dlt_load_date'] = datetime.today().date()
